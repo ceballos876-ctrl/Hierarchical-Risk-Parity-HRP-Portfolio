@@ -67,3 +67,33 @@ def portfolio_stats(weights: pd.Series, returns: pd.DataFrame) -> dict:
     ret = r.mean() * 252
     return {"Retorno anual": ret, "Volatilidad anual": vol,
             "Sharpe (rf=0)": ret / vol if vol > 0 else np.nan}
+
+
+LEVELS = {"Baja": -1, "Neutral": 0, "Moderada": 1, "Alta": 2}
+
+
+def tilt_weights(w: pd.Series, convictions: dict, strength: float = 1.0,
+                 max_weight: float = 1.0) -> pd.Series:
+    """Inclina los pesos HRP según la convicción del usuario.
+
+    Factor por activo = (1 + strength) ** nivel, con nivel en {-1, 0, 1, 2}.
+    Luego normaliza y aplica un tope por activo, redistribuyendo el exceso
+    de forma proporcional entre los activos que no llegaron al tope.
+    """
+    n = len(w)
+    max_weight = max(max_weight, 1.0 / n)
+    f = pd.Series({t: (1 + strength) ** LEVELS.get(convictions.get(t, "Neutral"), 0)
+                   for t in w.index})
+    x = w * f
+    x = x / x.sum()
+    for _ in range(n):
+        over = x > max_weight + 1e-12
+        if not over.any():
+            break
+        excess = (x[over] - max_weight).sum()
+        x[over] = max_weight
+        free = x < max_weight - 1e-12
+        if not free.any():
+            break
+        x[free] += excess * x[free] / x[free].sum()
+    return x / x.sum()
